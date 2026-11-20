@@ -107,4 +107,3 @@ jobs:
               -e DB_NAME=devopsdb \
               ghcr.io/${{ github.repository }}:latest
 
-#smalll comment
