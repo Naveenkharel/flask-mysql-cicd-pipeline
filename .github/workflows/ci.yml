@@ -8,7 +8,6 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   build-and-test:
@@ -16,12 +15,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build Docker image
-        run: docker build -t ${{ env.IMAGE_NAME }}:test .
 
       - name: Start services with Docker Compose
         run: docker compose up -d --build
@@ -43,11 +36,9 @@ jobs:
     needs: build-and-test
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-
     permissions:
       contents: read
       packages: write
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -63,7 +54,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ github.repository }}
           tags: |
             type=raw,value=latest
             type=sha
@@ -76,34 +67,46 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
-      - name: Verify published image
-        run: |
-          echo "Image published successfully:"
-          echo "${{ steps.meta.outputs.tags }}"
-
   deploy:
     needs: publish-and-deploy
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-
     steps:
+      - name: Lowercase image name
+        id: vars
+        run: echo "image=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
       - name: Deploy to AWS EC2
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          IMAGE_LC: ${{ steps.vars.outputs.image }}
+          GHCR_PAT: ${{ secrets.GHCR_PAT }}
+          GH_USER: ${{ github.actor }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
         with:
           host: ${{ secrets.VM_HOST }}
           username: ${{ secrets.VM_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
+          envs: IMAGE_LC,GHCR_PAT,GH_USER,DB_PASSWORD
+          script_stop: true
           script: |
-            echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-            docker pull ghcr.io/${{ github.repository }}:latest
+            echo "$GHCR_PAT" | docker login ghcr.io -u "$GH_USER" --password-stdin
+            docker pull ghcr.io/$IMAGE_LC:latest
+
+            docker network create app-net || true
+            docker network connect app-net mysql-db || true
+
             docker stop web || true
             docker rm web || true
-            docker run -d --name web \
-              -p 80:5000 \
-              --link mysql-db:db \
-              -e DB_HOST=db \
+            docker run -d --name web --restart unless-stopped \
+              --network app-net \
+              -p 80:5001 \
+              -e DB_HOST=mysql-db \
               -e DB_USER=root \
-              -e DB_PASSWORD=rootpassword \
+              -e DB_PASSWORD="$DB_PASSWORD" \
               -e DB_NAME=devopsdb \
-              ghcr.io/${{ github.repository }}:latest
+              ghcr.io/$IMAGE_LC:latest
 
+            sleep 10
+            docker ps --filter name=web
+            docker logs web --tail 30
