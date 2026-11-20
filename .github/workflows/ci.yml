@@ -106,3 +106,5 @@ jobs:
               -e DB_PASSWORD=rootpassword \
               -e DB_NAME=devopsdb \
               ghcr.io/${{ github.repository }}:latest
+
+#smalll comment
