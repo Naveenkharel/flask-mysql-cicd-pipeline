@@ -81,11 +81,11 @@ jobs:
           echo "Image published successfully:"
           echo "${{ steps.meta.outputs.tags }}"
 
-    deploy:
+  deploy:
      needs: publish-and-deploy
      runs-on: ubuntu-latest
      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-       steps:
+     steps:
       - name: Deploy to AWS EC2
         uses: appleboy/ssh-action@v1.0.3
         with:
