@@ -110,3 +110,7 @@ jobs:
             sleep 10
             docker ps --filter name=web
             docker logs web --tail 30
+
+            
+            
+#.
